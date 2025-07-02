@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  phishing-monitor:
+    build: .
+    container_name: phishing-monitor
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - CERTSTREAM_URL=wss://certstream.calidog.io
+      - DATABASE_PATH=/app/data/phishing.db
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CLIENT_DOMAINS=${CLIENT_DOMAINS:-qazpost.kz,example.com}
+      - UPDATE_INTERVAL=${UPDATE_INTERVAL:-60}
+      - SIMILARITY_THRESHOLD=${SIMILARITY_THRESHOLD:-0.8}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - phishing-monitor-network
+
+networks:
+  phishing-monitor-network:
+    driver: bridge
+
+volumes:
+  phishing-data:
+    driver: local

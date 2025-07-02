@@ -1,0 +1,48 @@
+# Бинарные файлы
+phishing-monitor
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Тестовые файлы
+*.test
+*.out
+
+# Go workspace файлы
+go.work
+
+# Зависимости
+vendor/
+
+# Конфигурация (содержит секреты)
+.env
+
+# База данных и логи
+data/
+logs/
+*.db
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS файлы
+.DS_Store
+Thumbs.db
+
+# Временные файлы
+tmp/
+temp/
+*.tmp
+
+# Docker
+.dockerignore
+
+# Резервные копии
+*.bak
+*.backup
