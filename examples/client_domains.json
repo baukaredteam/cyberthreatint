@@ -1,0 +1,32 @@
+{
+  "clients": [
+    {
+      "name": "Казпочта",
+      "domain": "qazpost.kz",
+      "industry": "Почтовые услуги",
+      "critical": true,
+      "contacts": ["security@qazpost.kz"]
+    },
+    {
+      "name": "Example Bank",
+      "domain": "examplebank.kz",
+      "industry": "Банковские услуги",
+      "critical": true,
+      "contacts": ["security@examplebank.kz", "soc@examplebank.kz"]
+    },
+    {
+      "name": "TechCorp",
+      "domain": "techcorp.com",
+      "industry": "Технологии",
+      "critical": false,
+      "contacts": ["security@techcorp.com"]
+    },
+    {
+      "name": "MegaRetail",
+      "domain": "megaretail.kz",
+      "industry": "Розничная торговля",
+      "critical": false,
+      "contacts": ["it@megaretail.kz"]
+    }
+  ]
+}
