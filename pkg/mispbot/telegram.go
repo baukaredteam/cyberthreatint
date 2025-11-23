@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"phishing-monitor/pkg/misp"
 
@@ -22,21 +23,20 @@ type TelegramBot struct {
 }
 
 // NewTelegramBot создает нового Telegram бота
-func NewTelegramBot(token string, chatIDs []int64, mispClient *misp.Client) (*TelegramBot, error) {
+func NewTelegramBot(token string, chatIDs []int64, mispClient *misp.Client, logger *logrus.Logger) (*TelegramBot, error) {
 	bot, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания Telegram бота: %w", err)
 	}
 
-	logger := logrus.New()
-	logger.Infof("Авторизован как бот: %s", bot.Self.UserName)
+	logger.Infof("[TELEGRAM] Авторизован как бот: @%s", bot.Self.UserName)
 
 	return &TelegramBot{
 		api:        bot,
 		chatIDs:    chatIDs,
 		mispClient: mispClient,
 		logger:     logger,
-		adminIDs:   chatIDs, // Администраторы = владельцы чатов по умолчанию
+		adminIDs:   chatIDs,
 	}, nil
 }
 
@@ -53,7 +53,7 @@ func (t *TelegramBot) SendMessage(text string) error {
 		msg.DisableWebPagePreview = true
 
 		if _, err := t.api.Send(msg); err != nil {
-			t.logger.Errorf("Ошибка отправки в чат %d: %v", chatID, err)
+			t.logger.Errorf("[TELEGRAM] Ошибка отправки в чат %d: %v", chatID, err)
 			lastErr = err
 		}
 	}
@@ -73,6 +73,9 @@ func (t *TelegramBot) SendMessageToChat(chatID int64, text string) error {
 
 // StartCommandHandler запускает обработчик команд бота
 func (t *TelegramBot) StartCommandHandler() {
+	t.logger.Info("[TELEGRAM] Запуск обработчика команд...")
+	t.logger.Info("[TELEGRAM] Ожидание команд от пользователей...")
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
@@ -83,8 +86,25 @@ func (t *TelegramBot) StartCommandHandler() {
 			continue
 		}
 
+		// Логируем все входящие сообщения
+		userName := update.Message.From.UserName
+		if userName == "" {
+			userName = fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName)
+		}
+
 		if update.Message.IsCommand() {
+			t.logger.Info("----------------------------------------")
+			t.logger.Infof("[CMD] Получена команда: /%s", update.Message.Command())
+			t.logger.Infof("[CMD] От пользователя: @%s (ID: %d)", userName, update.Message.From.ID)
+			t.logger.Infof("[CMD] Чат ID: %d", update.Message.Chat.ID)
+			if update.Message.CommandArguments() != "" {
+				t.logger.Infof("[CMD] Аргументы: %s", update.Message.CommandArguments())
+			}
+			t.logger.Infof("[CMD] Время: %s", time.Now().Format("15:04:05"))
+
 			t.handleCommand(update.Message)
+		} else {
+			t.logger.Infof("[MSG] Сообщение от @%s: %s", userName, truncateString(update.Message.Text, 50))
 		}
 	}
 }
@@ -95,28 +115,41 @@ func (t *TelegramBot) handleCommand(message *tgbotapi.Message) {
 	command := message.Command()
 	args := message.CommandArguments()
 
-	t.logger.Infof("Получена команда: /%s от чата %d", command, chatID)
+	startTime := time.Now()
 
 	switch command {
 	case "start":
+		t.logger.Info("[CMD] Выполнение: /start")
 		t.handleStart(chatID)
 	case "help":
+		t.logger.Info("[CMD] Выполнение: /help")
 		t.handleHelp(chatID)
 	case "status":
+		t.logger.Info("[CMD] Выполнение: /status - проверка подключения к MISP...")
 		t.handleStatus(chatID)
 	case "events":
+		t.logger.Infof("[CMD] Выполнение: /events %s - получение списка событий...", args)
 		t.handleEvents(chatID, args)
 	case "event":
+		t.logger.Infof("[CMD] Выполнение: /event %s - получение деталей события...", args)
 		t.handleEvent(chatID, args)
 	case "search":
+		t.logger.Infof("[CMD] Выполнение: /search %s - поиск событий...", args)
 		t.handleSearch(chatID, args)
 	case "subscribe":
+		t.logger.Info("[CMD] Выполнение: /subscribe - подписка на уведомления")
 		t.handleSubscribe(chatID)
 	case "unsubscribe":
+		t.logger.Info("[CMD] Выполнение: /unsubscribe - отписка от уведомлений")
 		t.handleUnsubscribe(chatID)
 	default:
+		t.logger.Warnf("[CMD] Неизвестная команда: /%s", command)
 		t.SendMessageToChat(chatID, "Неизвестная команда. Используйте /help для списка команд.")
+		return
 	}
+
+	elapsed := time.Since(startTime)
+	t.logger.Infof("[CMD] Команда /%s выполнена за %v", command, elapsed)
 }
 
 // handleStart обрабатывает команду /start
@@ -137,6 +170,7 @@ func (t *TelegramBot) handleStart(chatID int64) {
 Используйте /subscribe для подписки на уведомления.
 `
 	t.SendMessageToChat(chatID, message)
+	t.logger.Info("[CMD] Отправлено приветственное сообщение")
 }
 
 // handleHelp обрабатывает команду /help
@@ -159,16 +193,22 @@ func (t *TelegramBot) handleHelp(chatID int64) {
 • /search phishing - найти события с "phishing"
 `
 	t.SendMessageToChat(chatID, message)
+	t.logger.Info("[CMD] Отправлена справка по командам")
 }
 
 // handleStatus обрабатывает команду /status
 func (t *TelegramBot) handleStatus(chatID int64) {
+	t.logger.Info("[CMD] Проверка подключения к MISP API...")
+
 	// Проверяем подключение к MISP
 	events, err := t.mispClient.GetRecentEvents(60)
 	if err != nil {
+		t.logger.Errorf("[CMD] Ошибка подключения к MISP: %v", err)
 		t.SendMessageToChat(chatID, fmt.Sprintf("*❌ Статус MISP:* Ошибка подключения\n```\n%s\n```", err.Error()))
 		return
 	}
+
+	t.logger.Infof("[CMD] MISP API доступен, событий за час: %d", len(events))
 
 	t.mu.RLock()
 	subscribersCount := len(t.chatIDs)
@@ -184,6 +224,7 @@ func (t *TelegramBot) handleStatus(chatID int64) {
 `, len(events), subscribersCount, t.api.Self.UserName)
 
 	t.SendMessageToChat(chatID, message)
+	t.logger.Info("[CMD] Статус отправлен")
 }
 
 // handleEvents обрабатывает команду /events
@@ -199,11 +240,16 @@ func (t *TelegramBot) handleEvents(chatID int64, args string) {
 		}
 	}
 
+	t.logger.Infof("[CMD] Запрос %d последних событий из MISP...", limit)
+
 	events, err := t.mispClient.GetEvents()
 	if err != nil {
+		t.logger.Errorf("[CMD] Ошибка получения событий: %v", err)
 		t.SendMessageToChat(chatID, fmt.Sprintf("Ошибка получения событий: %s", err.Error()))
 		return
 	}
+
+	t.logger.Infof("[CMD] Получено %d событий из MISP", len(events))
 
 	if len(events) == 0 {
 		t.SendMessageToChat(chatID, "События не найдены.")
@@ -234,21 +280,28 @@ func (t *TelegramBot) handleEvents(chatID int64, args string) {
 	}
 
 	t.SendMessageToChat(chatID, sb.String())
+	t.logger.Infof("[CMD] Отправлен список из %d событий", len(events))
 }
 
 // handleEvent обрабатывает команду /event
 func (t *TelegramBot) handleEvent(chatID int64, args string) {
 	if args == "" {
 		t.SendMessageToChat(chatID, "Укажите ID события. Пример: /event 241879")
+		t.logger.Warn("[CMD] Не указан ID события")
 		return
 	}
 
 	eventID := strings.TrimSpace(args)
+	t.logger.Infof("[CMD] Запрос деталей события #%s...", eventID)
+
 	event, err := t.mispClient.GetEvent(eventID)
 	if err != nil {
+		t.logger.Errorf("[CMD] Ошибка получения события #%s: %v", eventID, err)
 		t.SendMessageToChat(chatID, fmt.Sprintf("Ошибка получения события: %s", err.Error()))
 		return
 	}
+
+	t.logger.Infof("[CMD] Событие #%s получено: %s", eventID, truncateString(event.Info, 30))
 
 	// Собираем теги
 	var tags []string
@@ -313,19 +366,23 @@ func (t *TelegramBot) handleEvent(chatID int64, args string) {
 	)
 
 	t.SendMessageToChat(chatID, message)
+	t.logger.Infof("[CMD] Детали события #%s отправлены", eventID)
 }
 
 // handleSearch обрабатывает команду /search
 func (t *TelegramBot) handleSearch(chatID int64, args string) {
 	if args == "" {
 		t.SendMessageToChat(chatID, "Укажите поисковый запрос. Пример: /search phishing")
+		t.logger.Warn("[CMD] Не указан поисковый запрос")
 		return
 	}
 
 	query := strings.ToLower(strings.TrimSpace(args))
+	t.logger.Infof("[CMD] Поиск событий по запросу: \"%s\"", query)
 
 	events, err := t.mispClient.GetEvents()
 	if err != nil {
+		t.logger.Errorf("[CMD] Ошибка поиска: %v", err)
 		t.SendMessageToChat(chatID, fmt.Sprintf("Ошибка поиска: %s", err.Error()))
 		return
 	}
@@ -337,6 +394,8 @@ func (t *TelegramBot) handleSearch(chatID int64, args string) {
 			filtered = append(filtered, event)
 		}
 	}
+
+	t.logger.Infof("[CMD] Найдено %d событий по запросу \"%s\"", len(filtered), query)
 
 	if len(filtered) == 0 {
 		t.SendMessageToChat(chatID, fmt.Sprintf("События по запросу \"%s\" не найдены.", args))
@@ -366,6 +425,7 @@ func (t *TelegramBot) handleSearch(chatID int64, args string) {
 	}
 
 	t.SendMessageToChat(chatID, sb.String())
+	t.logger.Infof("[CMD] Результаты поиска отправлены (%d событий)", len(filtered))
 }
 
 // handleSubscribe обрабатывает команду /subscribe
@@ -377,12 +437,14 @@ func (t *TelegramBot) handleSubscribe(chatID int64) {
 	for _, id := range t.chatIDs {
 		if id == chatID {
 			t.SendMessageToChat(chatID, "✅ Вы уже подписаны на уведомления.")
+			t.logger.Infof("[CMD] Чат %d уже подписан", chatID)
 			return
 		}
 	}
 
 	t.chatIDs = append(t.chatIDs, chatID)
 	t.SendMessageToChat(chatID, "✅ Вы успешно подписались на уведомления о событиях MISP.")
+	t.logger.Infof("[CMD] Чат %d подписан на уведомления. Всего подписчиков: %d", chatID, len(t.chatIDs))
 }
 
 // handleUnsubscribe обрабатывает команду /unsubscribe
@@ -394,11 +456,13 @@ func (t *TelegramBot) handleUnsubscribe(chatID int64) {
 		if id == chatID {
 			t.chatIDs = append(t.chatIDs[:i], t.chatIDs[i+1:]...)
 			t.SendMessageToChat(chatID, "❌ Вы отписались от уведомлений.")
+			t.logger.Infof("[CMD] Чат %d отписан от уведомлений. Осталось подписчиков: %d", chatID, len(t.chatIDs))
 			return
 		}
 	}
 
 	t.SendMessageToChat(chatID, "Вы не были подписаны на уведомления.")
+	t.logger.Infof("[CMD] Чат %d не был подписан", chatID)
 }
 
 // truncateString обрезает строку до указанной длины

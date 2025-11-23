@@ -1,11 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
-	"os/signal"
 	"strconv"
 	"strings"
-	"syscall"
+	"time"
 
 	"phishing-monitor/pkg/misp"
 	"phishing-monitor/pkg/mispbot"
@@ -15,93 +15,131 @@ import (
 )
 
 func main() {
+	// Настраиваем логгер
 	logger := logrus.New()
+	logger.SetOutput(os.Stdout)
 	logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05",
+		ForceColors:     true,
 	})
 
-	logger.Info("🚀 Запуск MISP SOC Telegram Bot...")
+	// Красивый баннер при запуске
+	printBanner()
+
+	logger.Info("========================================")
+	logger.Info("   MISP SOC Telegram Bot v1.0")
+	logger.Info("   Запуск приложения...")
+	logger.Info("========================================")
 
 	// Загружаем переменные окружения
 	if err := godotenv.Load(); err != nil {
-		logger.Warn("Файл .env не найден, используем системные переменные окружения")
+		logger.Warn("[CONFIG] Файл .env не найден, используем системные переменные окружения")
+	} else {
+		logger.Info("[CONFIG] Файл .env загружен успешно")
 	}
 
 	// Получаем конфигурацию
-	config, err := loadConfig()
+	config, err := loadConfig(logger)
 	if err != nil {
-		logger.Fatalf("Ошибка загрузки конфигурации: %v", err)
+		logger.Fatalf("[ERROR] Ошибка загрузки конфигурации: %v", err)
 	}
 
-	logger.Info("✅ Конфигурация загружена")
+	logger.Info("[CONFIG] Конфигурация загружена:")
+	logger.Infof("[CONFIG]   MISP URL: %s", config.MISPBaseURL)
+	logger.Infof("[CONFIG]   Poll Interval: %d секунд", config.PollIntervalSeconds)
+	logger.Infof("[CONFIG]   Chat IDs: %v", config.TelegramChatIDs)
 
 	// Создаем MISP клиент
+	logger.Info("[INIT] Создание MISP клиента...")
 	mispClient := misp.NewClient(
 		config.MISPBaseURL,
 		config.MISPAPIKey,
 		config.MISPSkipTLSVerify,
 	)
+	logger.Info("[INIT] MISP клиент создан успешно")
 
-	logger.Info("✅ MISP клиент создан")
+	// Проверяем подключение к MISP
+	logger.Info("[INIT] Проверка подключения к MISP API...")
+	if _, err := mispClient.GetEvents(); err != nil {
+		logger.Errorf("[ERROR] Не удалось подключиться к MISP: %v", err)
+		logger.Warn("[INIT] Продолжаем запуск, подключение будет повторено...")
+	} else {
+		logger.Info("[INIT] Подключение к MISP API успешно!")
+	}
 
 	// Создаем Telegram бота
+	logger.Info("[INIT] Создание Telegram бота...")
 	telegramBot, err := mispbot.NewTelegramBot(
 		config.TelegramToken,
 		config.TelegramChatIDs,
 		mispClient,
+		logger,
 	)
 	if err != nil {
-		logger.Fatalf("Ошибка создания Telegram бота: %v", err)
+		logger.Fatalf("[ERROR] Ошибка создания Telegram бота: %v", err)
 	}
-
-	logger.Info("✅ Telegram бот создан")
+	logger.Info("[INIT] Telegram бот создан успешно")
 
 	// Создаем монитор
+	logger.Info("[INIT] Создание монитора MISP событий...")
 	monitor := mispbot.NewMonitor(
 		mispClient,
 		telegramBot,
 		config.PollIntervalSeconds,
+		logger,
 	)
+	logger.Info("[INIT] Монитор создан успешно")
 
 	// Запускаем обработчик команд бота в отдельной горутине
 	go telegramBot.StartCommandHandler()
-	logger.Info("✅ Обработчик команд запущен")
-
-	// Запускаем монитор в отдельной горутине
-	go monitor.Start()
-	logger.Info("✅ Мониторинг MISP событий запущен")
 
 	// Отправляем уведомление о запуске
-	startupMessage := `
+	startupMessage := fmt.Sprintf(`
 *🟢 MISP SOC Bot запущен*
 
 Бот начал мониторинг событий MISP.
+Время запуска: %s
 Используйте /help для списка команд.
-`
+`, time.Now().Format("02.01.2006 15:04:05"))
 	telegramBot.SendMessage(startupMessage)
 
-	// Ожидаем сигнал завершения
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	logger.Info("========================================")
+	logger.Info("   Все компоненты инициализированы!")
+	logger.Info("   Бот работает в режиме мониторинга")
+	logger.Info("========================================")
+	logger.Info("")
 
-	<-sigChan
-	logger.Info("Получен сигнал завершения, останавливаем бота...")
+	// Запускаем монитор (бесконечный цикл)
+	// Эта функция никогда не вернется
+	monitor.Start()
+}
 
-	// Останавливаем монитор
-	monitor.Stop()
-
-	// Отправляем уведомление об остановке
-	telegramBot.SendMessage("*🔴 MISP SOC Bot остановлен*")
-
-	logger.Info("👋 Бот остановлен")
+// printBanner выводит ASCII баннер
+func printBanner() {
+	banner := `
+╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   ███╗   ███╗██╗███████╗██████╗     ██████╗  ██████╗ ████████╗║
+║   ████╗ ████║██║██╔════╝██╔══██╗    ██╔══██╗██╔═══██╗╚══██╔══╝║
+║   ██╔████╔██║██║███████╗██████╔╝    ██████╔╝██║   ██║   ██║   ║
+║   ██║╚██╔╝██║██║╚════██║██╔═══╝     ██╔══██╗██║   ██║   ██║   ║
+║   ██║ ╚═╝ ██║██║███████║██║         ██████╔╝╚██████╔╝   ██║   ║
+║   ╚═╝     ╚═╝╚═╝╚══════╝╚═╝         ╚═════╝  ╚═════╝    ╚═╝   ║
+║                                                              ║
+║            SOC Team - Threat Intelligence Monitor            ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+`
+	fmt.Println(banner)
 }
 
 // Config содержит конфигурацию приложения
 type Config struct {
 	// MISP настройки
-	MISPBaseURL        string
-	MISPAPIKey         string
-	MISPSkipTLSVerify  bool
+	MISPBaseURL       string
+	MISPAPIKey        string
+	MISPSkipTLSVerify bool
 
 	// Telegram настройки
 	TelegramToken   string
@@ -112,7 +150,7 @@ type Config struct {
 }
 
 // loadConfig загружает конфигурацию из переменных окружения
-func loadConfig() (*Config, error) {
+func loadConfig(logger *logrus.Logger) (*Config, error) {
 	config := &Config{
 		MISPBaseURL:         getEnv("MISP_BASE_URL", "https://misp.local"),
 		MISPAPIKey:          getEnv("MISP_API_KEY", ""),
@@ -135,10 +173,12 @@ func loadConfig() (*Config, error) {
 
 	// Валидация
 	if config.MISPAPIKey == "" {
-		logrus.Fatal("MISP_API_KEY не установлен")
+		logger.Error("[CONFIG] MISP_API_KEY не установлен!")
+		return nil, fmt.Errorf("MISP_API_KEY не установлен")
 	}
 	if config.TelegramToken == "" {
-		logrus.Fatal("TELEGRAM_BOT_TOKEN не установлен")
+		logger.Error("[CONFIG] TELEGRAM_BOT_TOKEN не установлен!")
+		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN не установлен")
 	}
 
 	return config, nil
