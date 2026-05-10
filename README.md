@@ -20,7 +20,6 @@
 - Go 1.21+
 - SQLite3
 - Telegram Bot Token
-- Интернет соединение для доступа к Certstream
 
 ## 🔧 Установка
 
@@ -44,7 +43,7 @@ cp .env.example .env
 ```env
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
-CLIENT_DOMAINS=qazpost.kz,yourcompany.com,client.org
+CLIENT_DOMAINS=,yourcompany.com,client.org
 SIMILARITY_THRESHOLD=0.8
 ```
 
@@ -80,7 +79,7 @@ docker build -t phishing-monitor .
 docker run -d --name phishing-monitor \
   -e TELEGRAM_BOT_TOKEN=your_token \
   -e TELEGRAM_CHAT_ID=your_chat_id \
-  -e CLIENT_DOMAINS=qazpost.kz,example.com \
+  -e CLIENT_DOMAINS=,example.com \
   -v $(pwd)/data:/app/data \
   phishing-monitor
 ```
@@ -93,7 +92,7 @@ docker run -d --name phishing-monitor \
 |------------|----------|--------------|
 | `TELEGRAM_BOT_TOKEN` | Токен Telegram бота | - |
 | `TELEGRAM_CHAT_ID` | ID чата для уведомлений | - |
-| `CLIENT_DOMAINS` | Домены клиентов (через запятую) | `qazpost.kz,example.com` |
+| `CLIENT_DOMAINS` | Домены клиентов (через запятую) | `,example.com` |
 | `CERTSTREAM_URL` | URL Certstream WebSocket | `wss://certstream.calidog.io` |
 | `DATABASE_PATH` | Путь к SQLite базе | `./data/phishing.db` |
 | `LOG_LEVEL` | Уровень логирования | `info` |
